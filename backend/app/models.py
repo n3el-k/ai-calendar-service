@@ -1,6 +1,9 @@
 from datetime import datetime
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, StringConstraints
 from typing import Annotated, Literal
+
+class UserInput(BaseModel):
+    request: Annotated[str, Field(min_length=5), StringConstraints(strip_whitespace=True)]
 
 class Event(BaseModel):
     title: Annotated[str, Field(description="A small text description describing the event")]

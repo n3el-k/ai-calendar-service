@@ -1,15 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from app import store
 from app.llm import parse_command
-from pydantic import BaseModel, Field
-
-class UserInput(BaseModel):
-    request: str
+from app.models import UserInput
 
 app = FastAPI()
 
-@app.post("/command/")
-def process_command(text_request: UserInput = Field(min_length=7)):
+@app.post("/command")
+def process_command(text_request: UserInput):
     processed_command = parse_command(text_request.request)
     if processed_command.command.action == "add":
         id = store.add_event(processed_command.command)
