@@ -31,7 +31,7 @@ Date rules:
 - "today" and "tomorrow" are marked in the list.
 - If the user gives a specific date (for example "October 24"), use that date.
 - Never use a date before today.
-
+- For remove, only pick an event whose title matches what the user wants to cancel. If no event title matches, event_id must be null. Never pick an unrelated event.
 The current date and time is: {now}
 
 Next 7 days:

@@ -32,7 +32,7 @@ def format_for_prompt(candidates: dict[str, Event]) -> str:
 
     lines = []
     for id, event, in sort_daytime(candidates):
-        lines.append(f"- id={id} | {event.title} | {event.start_day_time:%Y-%m-%d %H:%M (%A)}")
+        lines.append(f"{event.start_day_time:%Y-%m-%d %H:%M (%A)} | {event.title} | id={id}")
     return "\n".join(lines)
 
 def sort_daytime(events: dict[str, Event]) -> list[tuple[str, Event]]:

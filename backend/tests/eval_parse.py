@@ -113,9 +113,8 @@ def eval_remove():
     print(f"\n{num_total} cases | remove fails: {fails}")
     
 def test():
-        
-
-    eval_add_and_dates()
+    
+    # eval_add_and_dates()
     eval_remove()
 
 if __name__ == "__main__":

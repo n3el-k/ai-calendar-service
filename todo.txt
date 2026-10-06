@@ -1,0 +1,5 @@
+check llm error handling
+database
+frontend
+
+* Create eval for parse function. Make sure that the dates are correct when given a weekday
