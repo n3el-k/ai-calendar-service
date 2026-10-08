@@ -6,7 +6,7 @@ from openai import OpenAI
 
 from app import store
 from app.models import CalendarCommand
-from app.date_utils import generate_week
+from app.date_utils import generate_next_n_days
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
@@ -27,30 +27,31 @@ Existing events:
 {events}
 
 Date rules:
-- If the user names a weekday, find that weekday in the list below and copy its date exactly. Do not calculate dates yourself.
+- If the user names a weekday, find that weekday in the lookup table below and copy its date exactly. Do not calculate dates yourself.
 - "today" and "tomorrow" are marked in the list.
 - If the user gives a specific date (for example "October 24"), use that date.
 - Never use a date before today.
 - For remove, only pick an event whose title matches what the user wants to cancel. If no event title matches, event_id must be null. Never pick an unrelated event.
-The current date and time is: {now}
 
+The current date and time is: {now}
 Next 7 days:
 {generated_week}
 """
 
 def parse_command(text: str, now: datetime | None = None) -> CalendarCommand:
     now = now or datetime.now()
-    week = generate_week(now)
+    week = generate_next_n_days(now, 7)
     candidates = store.events_near(now)
     prompt = PROMPT_LLM.format(now=f"{now:%Y-%m-%d %H:%M (%A)}",
                                 events=store.format_for_prompt(candidates),
-                                generated_week=week
+                                generated_week=week,
                                 )
     return client.chat.completions.create(
         model=OLLAMA_MODEL,
         response_model=CalendarCommand,
         context={"valid_ids": set(candidates)},
         max_retries=2,
+        temperature=0,
         messages=[
             {"role":"system", "content":prompt},
             {"role":"user", "content":text}

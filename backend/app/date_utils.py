@@ -14,10 +14,10 @@ def next_weekday(today: datetime, weekday: Weekdays) -> date:
     days_ahead = (weekday - today.weekday()) % 7
     return today.date() + timedelta(days=days_ahead)
 
-def generate_week(today: datetime) -> str:
+def generate_next_n_days(today: datetime, n: int) -> str:
     # Generates starting at now, formates for the llm output
     lines = []
-    for i in range(7):
+    for i in range(n):
         day = today.date() + timedelta(days=i)
         label = " (today)" if i == 0 else " (tomorrow)" if i == 1 else ""
         lines.append(f"- {day:%A}: {day:%Y-%m-%d}{label}")

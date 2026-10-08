@@ -113,9 +113,18 @@ def eval_remove():
     print(f"\n{num_total} cases | remove fails: {fails}")
     
 def test():
-    
-    # eval_add_and_dates()
-    eval_remove()
 
+    parser = argparse.ArgumentParser(description="Eval parse_command")
+    parser.add_argument("suite", nargs="?", default="all", choices=["all", "add", "remove"])
+    args = parser.parse_args()
+
+        
+    if (args.suite == "add"):
+        eval_add_and_dates()
+    elif(args.suite == "remove"):
+        eval_remove()
+    else:
+        eval_add_and_dates()
+        eval_remove()
 if __name__ == "__main__":
     test()
