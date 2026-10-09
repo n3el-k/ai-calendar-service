@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from app import store
-from app.llm import parse_command
+from app.llm.parse import parse_command
 from app.models import UserInput
 from app.db import init_db
 

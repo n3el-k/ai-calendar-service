@@ -1,9 +1,11 @@
 import argparse
+import tempfile
+from pathlib import Path
 from datetime import datetime, date
 from instructor.core.exceptions import InstructorRetryException 
 
-from app.llm import parse_command
-from app import store
+from app.llm.parse import parse_command
+from app import db, store
 from app.models import Event
 from app.date_utils import Weekdays, next_weekday
 
@@ -81,10 +83,14 @@ remove_prompts: dict[str, str | None] = {
     "Cancel the meeting with my professor": None,
 }
 
+def use_temp_db():
+    db.DB_PATH = Path(tempfile.mkdtemp()) / "eval.db"
+    db.init_db()
+
 def seed_events(events: dict[str, Event]):
-    # Clear store and add in my test cases w/ Preset ID's
-    store.events.clear()
-    store.events.update(events)
+    store.clear_store()
+    for event_id, event in events.items():
+        store.add_event(event, event_id)
 
 def eval_remove():
     print("\nTEST REMOVE:\n")
@@ -118,7 +124,8 @@ def test():
     parser.add_argument("suite", nargs="?", default="all", choices=["all", "add", "remove"])
     args = parser.parse_args()
 
-        
+    use_temp_db()
+
     if (args.suite == "add"):
         eval_add_and_dates()
     elif(args.suite == "remove"):

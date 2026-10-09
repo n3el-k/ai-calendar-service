@@ -7,14 +7,7 @@ from openai import OpenAI
 from app import store
 from app.models import CalendarCommand
 from app.date_utils import generate_next_n_days
-
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-
-client = instructor.from_openai(
-    OpenAI(base_url=OLLAMA_URL, api_key="ollama"),
-    mode=instructor.Mode.JSON
-)
+from app.llm.providers import get_provider
 
 PROMPT_LLM ="""You turn a natural language calendar request into a structured command.
 
@@ -46,14 +39,4 @@ def parse_command(text: str, now: datetime | None = None) -> CalendarCommand:
                                 events=store.format_for_prompt(candidates),
                                 generated_week=week,
                                 )
-    return client.chat.completions.create(
-        model=OLLAMA_MODEL,
-        response_model=CalendarCommand,
-        context={"valid_ids": set(candidates)},
-        max_retries=2,
-        temperature=0,
-        messages=[
-            {"role":"system", "content":prompt},
-            {"role":"user", "content":text}
-        ]
-    )
+    return get_provider().parse(prompt, text, CalendarCommand, {'valid_ids': set(candidates)})

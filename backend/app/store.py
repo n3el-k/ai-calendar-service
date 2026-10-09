@@ -24,10 +24,10 @@ def clear_store() -> None:
     connection.execute("DELETE FROM events")
     close_connection(connection)
 
-def add_event(event: Event) -> str:
+def add_event(event: Event, event_id: str | None = None) -> str:
     # The event being passed in is a models.AddEvent as that is what the LLM outputs.
     event = Event(**event.model_dump(exclude={"action"})) # Convert to regular event
-    id = uuid4().hex[:8]
+    id = event_id or uuid4().hex[:8]  # event_id lets tests seed known ids
 
     query = """
     INSERT INTO events (id, title, start_day_time, end_day_time, location)
