@@ -1,5 +1,3 @@
-fix tests (or delete no need if using chatgpt)
-    -> switch ollama for llm service
 add change functionality
 add testing for the db
 

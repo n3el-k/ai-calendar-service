@@ -3,6 +3,8 @@ import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, date
+import time
+
 from instructor.core.exceptions import InstructorRetryException 
 
 from app.llm.parse import parse_command
@@ -39,24 +41,31 @@ def eval_add_and_dates():
     add_fails = 0
     date_fails = 0
     num_total = 0
+    times: list[float] = []
+
     print("TEST ADD + DATE\n")
     for now in starting_datetimes:
         for prompt in prompts:
             num_total += 1
 
+            # Log the time before and after
+            start = time.perf_counter()
             result = parse_command(prompt, now).command
+            delta_time = time.perf_counter() - start
+            times.append(delta_time)
+
             expected = next_weekday(now, prompts[prompt])
             # Check add
             if (result.action != "add"):
                 add_fails += 1
-                print(f"FAIL  now={now:%a %m-%d}  {prompt!r:32}  expected add, got {result.action}")
+                print(f"FAIL  now={now:%a %m-%d}  {prompt!r:32}  expected add, got {result.action},      inference_time: {delta_time:.2f}")
                 continue
             elif (result.start_day_time.date() != expected):
                 date_fails += 1
             mark = "PASS" if result.start_day_time.date() == expected else "FAIL"
-            print(f"{mark}  now={now:%a %m-%d}  {prompt!r:32}  expected {expected:%a %m-%d}  got {result.start_day_time:%a %m-%d}")
+            print(f"{mark}  now={now:%a %m-%d}  {prompt!r:32}  expected {expected:%a %m-%d}  got {result.start_day_time:%a %m-%d},      inference_time: {delta_time:.2f}")
 
-    print(f"\n{num_total} cases | action fails: {add_fails} | date fails: {date_fails}")
+    print(f"\n{num_total} cases | action fails: {add_fails} | date fails: {date_fails} | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}")
 
 # Test Remove
 remove_now = datetime(2026, 10, 5, 9, 0) # Only need to set one date for remove test
@@ -100,27 +109,32 @@ def eval_remove():
     print("\nTEST REMOVE:\n")
     num_total = 0
     fails = 0
+    times: list[float] = []
     seed_events(seed)
     for prompt in remove_prompts:
         num_total +=1
         try:
+            start = time.perf_counter()
             result = parse_command(prompt, remove_now).command
+            delta_time = time.perf_counter() - start
+            times.append(delta_time)
+
         except InstructorRetryException as e:
             fails += 1 
-            print(f"FAIL  prompt={prompt!r:32} no valid answer after {e.n_attempts} attempts")        
+            print(f"FAIL  prompt={prompt!r:32} no valid answer after {e.n_attempts} attempts,      inference time: {delta_time:.2f}")        
             continue
         mark = "PASS"
         # Check that action == "remove"
         if (result.action != "remove"):
             fails += 1
-            print(f"FAIL prompt={prompt!r:32}  expected remove, got {result.action}")
+            print(f"FAIL prompt={prompt!r:32}  expected remove, got {result.action}, inference time {delta_time:.2f}")
             continue
         # If remove, check that the corresponding ID for the remove is the same as the seed
         elif (result.event_id != remove_prompts[prompt]):
             fails += 1
             mark="FAIL"
-        print(f"{mark}  prompt={prompt!r:32}  expected_id={remove_prompts[prompt]} got={result.event_id}")
-    print(f"\n{num_total} cases | remove fails: {fails}")
+        print(f"{mark}  prompt={prompt!r:32}  expected_id={remove_prompts[prompt]} got={result.event_id},       inference time: {delta_time:.2f}")
+    print(f"\n{num_total} cases | remove fails: {fails} | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}")
     
 def test():
 
