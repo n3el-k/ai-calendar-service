@@ -3,8 +3,10 @@ from app import store
 from app.llm.parse import parse_command
 from app.models import UserInput
 from app.db import init_db
+from dotenv import load_dotenv
 
 # Setup app
+load_dotenv()
 app = FastAPI()
 init_db()
 

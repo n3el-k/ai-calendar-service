@@ -1,8 +1,4 @@
-import os
 from datetime import datetime
-
-import instructor
-from openai import OpenAI
 
 from app import store
 from app.models import CalendarCommand

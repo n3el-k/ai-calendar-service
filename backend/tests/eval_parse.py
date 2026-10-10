@@ -1,6 +1,7 @@
 import argparse
 import tempfile
 from pathlib import Path
+from dotenv import load_dotenv
 from datetime import datetime, date
 from instructor.core.exceptions import InstructorRetryException 
 
@@ -8,6 +9,9 @@ from app.llm.parse import parse_command
 from app import db, store
 from app.models import Event
 from app.date_utils import Weekdays, next_weekday
+
+# Load env
+load_dotenv()
 
 # 3 Goals:
 # Test add, test remove, test correct date arithmetic

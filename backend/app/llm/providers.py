@@ -1,9 +1,29 @@
 import os
+from pathlib import Path
 import instructor
 from openai import OpenAI
+import anthropic
 
 from app.llm.protocols import LLMProvider, T
 
+
+class AnthropicProvider:
+
+    def __init__(self):
+        self.model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+        self.client = instructor.from_anthropic(anthropic.Anthropic(), mode=instructor.Mode.ANTHROPIC_JSON, )        
+
+    def parse(self, system, user, response_model, context=None):
+        return self.client.messages.create(     
+            model=self.model,
+            max_tokens=400,                     
+            system=system,                       
+            messages=[{"role": "user", "content": user}],
+            response_model=response_model,
+            context=context,
+            max_retries=2,
+        )
+        
 class OllamaProvider:
 
     def __init__(self):
@@ -30,7 +50,9 @@ class OllamaProvider:
         )
 
 def get_provider() -> LLMProvider:
-    service = os.getenv('LLM_PROVIDER', 'ollama')
+    service = os.getenv('LLM_PROVIDER', 'anthropic')
     if service == 'ollama':
         return OllamaProvider()
+    elif service == 'anthropic':
+        return AnthropicProvider()
     raise ValueError(f"Unknown Provider: {service}")
