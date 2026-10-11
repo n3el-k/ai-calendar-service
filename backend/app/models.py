@@ -1,6 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, StringConstraints
-from typing import Annotated, Literal
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, StringConstraints, model_validator
+from typing import Annotated, Literal, Self
 
 class UserInput(BaseModel):
     request: Annotated[str, Field(min_length=5), StringConstraints(strip_whitespace=True)]
@@ -18,6 +18,12 @@ class Event(BaseModel):
         if v is not None and v.tzinfo is not None:
             return v.astimezone().replace(tzinfo=None)
         return v
+
+    @model_validator(mode='after')
+    def check_day_time(self) -> Self:
+        if self.end_day_time is not None and (self.end_day_time < self.start_day_time):
+            raise ValueError("Invalid timings. End time is before start time for event")
+        return self
 
 class AddEvent(Event):
     action: Literal["add"] = "add"

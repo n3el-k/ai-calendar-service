@@ -1,17 +1,34 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from instructor import exceptions
+from anthropic import APIError as AnthropicAPIError
+from openai import APIError as OpenAIAPIError
+from dotenv import load_dotenv
+import os
+
 from app import store
 from app.llm.parse import parse_command
 from app.models import UserInput
 from app.db import init_db
-from dotenv import load_dotenv
 
 # Setup app
 load_dotenv()
 app = FastAPI()
 
-# Setup and clear the database for new startup
+# Setup db
 init_db()
-store.clear_store()
+if os.getenv("RESET_DB_ON_START", "").lower() in ("1", "true", "yes"):
+    store.clear_store()
+
+# Exception functions
+@app.exception_handler(exceptions.InstructorRetryException)
+async def llm_retry_handler(request: Request, exc: exceptions.InstructorRetryException):
+    return JSONResponse(status_code=502, content={"detail": "LLM exceeded retry limit"})
+
+@app.exception_handler(AnthropicAPIError)
+@app.exception_handler(OpenAIAPIError)
+async def llm_api_handler(request: Request, exc: Exception):
+    return JSONResponse(status_code=502, content={"detail": "LLM provider error"})
 
 # API Functons
 @app.post("/command")

@@ -3,3 +3,8 @@ add change functionality
 add agentic system for more complex prompting! *
 
 frontend maybe if i want to
+
+
+Note: events near is bad logic (what if event is 1 month out??) -> i would change it,
+but i think that my agent is going tyo have a function search_events(key, date_range), so modifying this functio
+right now is wasted time. 
