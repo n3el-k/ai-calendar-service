@@ -8,7 +8,10 @@ from dotenv import load_dotenv
 # Setup app
 load_dotenv()
 app = FastAPI()
+
+# Setup and clear the database for new startup
 init_db()
+store.clear_store()
 
 # API Functons
 @app.post("/command")

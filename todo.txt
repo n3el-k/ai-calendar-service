@@ -1,5 +1,4 @@
 add change functionality
-add testing for the db
 
 add agentic system for more complex prompting! *
 
