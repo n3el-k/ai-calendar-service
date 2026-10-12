@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from app.models import Event
+from app.models import Event, UpdateEvent
 from app.db import get_connection, close_connection
 
 def remove_event(session_id: str, event_id: str) -> Event | None:
@@ -34,6 +34,45 @@ def add_event(session_id: str, event: Event, event_id: str | None = None) -> str
                                event.location, session_id))
     close_connection(connection)
     return id
+
+def update_event(session_id: str, event_id: str, changes: UpdateEvent) -> Event | None:
+
+    connection = get_connection()
+    try:
+        fetch_row_query = "SELECT * FROM events WHERE id = ? AND session_id = ?"
+        row = connection.execute(fetch_row_query, (event_id, session_id)).fetchone()
+
+        if row is None:
+            return None
+
+        event = _row_to_event(row)
+        # See what fields to change
+        changed_elem = changes.model_dump(exclude={"action", "event_id"}, exclude_none=True)
+
+        # If start moved and no new end was given, shift end by the same amount
+        new_start = changed_elem.get("start_day_time")
+        if new_start and not changed_elem.get("end_day_time") and event.end_day_time:
+            delta = new_start - event.start_day_time
+            changed_elem["end_day_time"] = event.end_day_time + delta
+
+        new_event = Event(**{**event.model_dump(), **changed_elem}) # This also checks start < end!
+
+        update_event_query = """UPDATE events
+        SET title=?, start_day_time=?, end_day_time=?, location=?
+        WHERE id = ? AND session_id = ?
+        """
+
+        connection.execute(update_event_query, (
+            new_event.title,
+            new_event.start_day_time.isoformat(),
+            new_event.end_day_time.isoformat() if new_event.end_day_time else None,
+            new_event.location,
+            event_id,
+            session_id,
+        ))
+        return new_event
+    finally:
+        close_connection(connection)
 
 def list_events(session_id: str) -> dict[str, Event]:
 

@@ -113,16 +113,15 @@ def eval_remove():
     seed_events(seed)
     for prompt in remove_prompts:
         num_total +=1
+        start = time.perf_counter()
         try:
-            start = time.perf_counter()
             result = parse_command(EVAL_SESSION, prompt, remove_now).command
-            delta_time = time.perf_counter() - start
-            times.append(delta_time)
-
         except InstructorRetryException as e:
             fails += 1 
-            print(f"FAIL  prompt={prompt!r:32} no valid answer after {e.n_attempts} attempts,      inference time: {delta_time:.2f}")        
+            print(f"FAIL  prompt={prompt!r:32} no valid answer after {e.n_attempts} attempts,      inference time: {time.perf_counter() - start:.2f}")        
             continue
+        delta_time = time.perf_counter() - start
+        times.append(delta_time)
         mark = "PASS"
         # Check that action == "remove"
         if (result.action != "remove"):
@@ -134,12 +133,89 @@ def eval_remove():
             fails += 1
             mark="FAIL"
         print(f"{mark}  prompt={prompt!r:32}  expected_id={remove_prompts[prompt]} got={result.event_id},       inference time: {delta_time:.2f}")
-    print(f"\n{num_total} cases | remove fails: {fails} | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}")
+    summary = f"\n{num_total} cases | remove fails: {fails}"
+    if times:
+        summary += f" | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}"
+    print(summary)
     
+# Test Update
+# prompt -> (expected event id, expected changed fields). Any field not listed must come back as None.
+UPDATE_FIELDS = ("title", "start_day_time", "end_day_time", "location")
+
+update_prompts: dict[str, tuple[str | None, dict]] = {
+    "Move my dentist appointment to Thursday at 2pm": ("dentist1", {"start_day_time": datetime(2026, 10, 8, 14, 0)}),
+    "Rename the gym session to Yoga": ("gym1", {"title": "Yoga"}),
+    "Change the location of lunch with Alex to Cafe Roma": ("lunch1", {"location": "Cafe Roma"}),
+    "Push Wednesday's standup to 10am": ("standup1", {"start_day_time": datetime(2026, 10, 7, 10, 0)}),  # same title, pick by day
+    "Make the dentist appointment run until 11am": ("dentist1", {"end_day_time": datetime(2026, 10, 6, 11, 0)}),
+    "Move dinner with Alex to 8pm and call it Team dinner": ("dinner1", {"start_day_time": datetime(2026, 10, 9, 20, 0), "title": "Team dinner"}),
+    "Move my haircut to Friday": (None, {}),  # nothing matches
+}
+
+def _field_matches(got, expected) -> bool:
+    if isinstance(expected, str) and isinstance(got, str):
+        return got.strip().casefold() == expected.casefold()
+    return got == expected
+
+def eval_update():
+    print("\nTEST UPDATE:\n")
+    num_total = 0
+    action_fails = 0
+    id_fails = 0
+    field_fails = 0
+    times: list[float] = []
+    seed_events(seed)
+    for prompt, (expected_id, expected_fields) in update_prompts.items():
+        num_total += 1
+        start = time.perf_counter()
+        try:
+            result = parse_command(EVAL_SESSION, prompt, remove_now).command
+        except InstructorRetryException as e:
+            action_fails += 1
+            print(f"FAIL  prompt={prompt!r:32} no valid answer after {e.n_attempts} attempts,      inference time: {time.perf_counter() - start:.2f}")
+            continue
+        delta_time = time.perf_counter() - start
+        times.append(delta_time)
+
+        if result.action != "update":
+            action_fails += 1
+            print(f"FAIL  prompt={prompt!r:32}  expected update, got {result.action}, inference time {delta_time:.2f}")
+            continue
+        if result.event_id != expected_id:
+            id_fails += 1
+            print(f"FAIL  prompt={prompt!r:32}  expected_id={expected_id} got={result.event_id},       inference time: {delta_time:.2f}")
+            continue
+
+        # No match: nothing else to check
+        if expected_id is None:
+            print(f"PASS  prompt={prompt!r:32}  expected_id=None got=None,       inference time: {delta_time:.2f}")
+            continue
+
+        # Listed fields must match, every other field must be None
+        bad_fields = []
+        for field in UPDATE_FIELDS:
+            got = getattr(result, field)
+            if field in expected_fields:
+                if not _field_matches(got, expected_fields[field]):
+                    bad_fields.append(f"{field}: expected {expected_fields[field]!r} got {got!r}")
+            elif got is not None:
+                bad_fields.append(f"{field}: expected None got {got!r}")
+
+        if bad_fields:
+            field_fails += 1
+            print(f"FAIL  prompt={prompt!r:32}  {'; '.join(bad_fields)},       inference time: {delta_time:.2f}")
+        else:
+            print(f"PASS  prompt={prompt!r:32}  id={result.event_id},       inference time: {delta_time:.2f}")
+
+    summary = f"\n{num_total} cases | action fails: {action_fails} | id fails: {id_fails} | field fails: {field_fails}"
+    if times:
+        summary += f" | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}"
+    print(summary)
+
 def test():
 
     parser = argparse.ArgumentParser(description="Eval parse_command")
-    parser.add_argument("suite", nargs="?", default="all", choices=["all", "add", "remove"])
+    parser.add_argument("suite", nargs="?", default="all", choices=["all", "add", "remove", "update"])
     args = parser.parse_args()
 
     use_temp_db()
@@ -148,8 +224,11 @@ def test():
         eval_add_and_dates()
     elif(args.suite == "remove"):
         eval_remove()
+    elif(args.suite == "update"):
+        eval_update()
     else:
         eval_add_and_dates()
         eval_remove()
+        eval_update()
 if __name__ == "__main__":
     test()

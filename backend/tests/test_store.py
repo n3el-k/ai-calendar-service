@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
 from app import db, store
-from app.models import AddEvent, Event
+import pytest
+from pydantic import ValidationError
+
+from app.models import AddEvent, Event, UpdateEvent
 
 NOW = datetime(2026, 10, 5, 9, 0)
 SESSION = "test-session"
@@ -221,3 +224,75 @@ def test_delete_stale_sessions_keeps_recent_session():
 
     assert list(store.list_events(OTHER)) == [kept]
     assert _last_seen(OTHER) is not None
+
+# update_event
+
+def _seed(**kwargs) -> str:
+    return store.add_event(SESSION, make_event(**kwargs), "e1")
+
+def test_update_changes_only_given_fields():
+    _seed(location="Clinic", end_day_time=datetime(2026, 10, 6, 11, 0))
+
+    updated = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", title="Checkup"))
+    assert updated is not None
+
+    assert updated.title == "Checkup"
+    assert updated.start_day_time == datetime(2026, 10, 6, 10, 0)
+    assert updated.end_day_time == datetime(2026, 10, 6, 11, 0)
+    assert updated.location == "Clinic"
+    assert store.list_events(SESSION)["e1"] == updated
+
+def test_update_unknown_id_returns_none():
+    assert store.update_event(SESSION, "nope", UpdateEvent(event_id="nope", title="x")) is None
+
+def test_update_cannot_change_other_sessions_event():
+    _seed()
+
+    result = store.update_event(OTHER, "e1", UpdateEvent(event_id="e1", title="Hacked"))
+
+    assert result is None
+    assert store.list_events(SESSION)["e1"].title == "Dentist"
+
+def test_update_start_shifts_end_by_same_amount():
+    _seed(end_day_time=datetime(2026, 10, 6, 11, 30))
+
+    updated = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0)))
+    assert updated is not None
+
+    assert updated.start_day_time == datetime(2026, 10, 8, 15, 0)
+    assert updated.end_day_time == datetime(2026, 10, 8, 16, 30)
+
+def test_update_start_without_existing_end_leaves_end_none():
+    _seed()
+
+    updated = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0)))
+    assert updated is not None
+
+    assert updated.end_day_time is None
+
+def test_update_explicit_end_is_not_shifted():
+    _seed(end_day_time=datetime(2026, 10, 6, 11, 0))
+
+    updated = store.update_event(SESSION, "e1", UpdateEvent(
+        event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0), end_day_time=datetime(2026, 10, 8, 18, 0)))
+    assert updated is not None
+
+    assert updated.end_day_time == datetime(2026, 10, 8, 18, 0)
+
+def test_update_end_before_existing_start_raises_and_row_unchanged():
+    _seed()
+
+    with pytest.raises(ValidationError):
+        store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", end_day_time=datetime(2026, 10, 6, 9, 0)))
+
+    stored = store.list_events(SESSION)["e1"]
+    assert stored.end_day_time is None
+    assert stored.start_day_time == datetime(2026, 10, 6, 10, 0)
+
+def test_update_timezone_aware_start_is_stored_naive():
+    _seed()
+    aware = datetime(2026, 10, 8, 15, 0, tzinfo=timezone.utc)
+
+    store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=aware))
+
+    assert store.list_events(SESSION)["e1"].start_day_time.tzinfo is None

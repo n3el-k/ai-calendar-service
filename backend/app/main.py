@@ -9,6 +9,7 @@ from openai import APIError as OpenAIAPIError
 
 import secrets
 from instructor import exceptions
+from pydantic import ValidationError
 
 from app import store
 from app.config import settings
@@ -58,16 +59,28 @@ async def rate_limit_handler(request: Request, exc: Exception):
 @app.post("/command")
 @llm_limit
 def process_command(request: Request, text_request: UserInput, sid: str = Depends(get_session_id)):
-    processed_command = parse_command(sid, text_request.request)
-    if processed_command.command.action == "add":
-        id = store.add_event(sid, processed_command.command)
+    processed_command = parse_command(sid, text_request.request).command
+
+    if processed_command.action == "add":
+        id = store.add_event(sid, processed_command)
         return {"id": id}
-    
-    # If remove, check if id is none
-    if processed_command.command.event_id is None:
+
+    if processed_command.event_id is None:
         raise HTTPException(404, "No event matches that request")
 
-    removed_event = store.remove_event(sid, processed_command.command.event_id)
+    if processed_command.action == "update":
+        # Wrap in try/except since Validation Erorr might arise
+        try:
+            updated = store.update_event(sid, processed_command.event_id,  processed_command)
+
+            if updated is None:
+                raise HTTPException(404, "No event matches that request")
+            
+            return {"updated_event": updated}
+        except ValidationError:
+            raise HTTPException(422, "end time can not be before event start.")
+
+    removed_event = store.remove_event(sid, processed_command.event_id)
     return {"removed_event": removed_event}
 
 # Does not add to database, just used for checking without storing
