@@ -27,10 +27,10 @@ Next 7 days:
 {generated_week}
 """
 
-def parse_command(text: str, now: datetime | None = None) -> CalendarCommand:
+def parse_command(session_id: str, text: str, now: datetime | None = None) -> CalendarCommand:
     now = now or datetime.now()
     week = generate_next_n_days(now, 7)
-    candidates = store.events_near(now)
+    candidates = store.events_near(session_id, now)
     prompt = PROMPT_LLM.format(now=f"{now:%Y-%m-%d %H:%M (%A)}",
                                 events=store.format_for_prompt(candidates),
                                 generated_week=week,

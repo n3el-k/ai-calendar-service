@@ -1,7 +1,7 @@
 import argparse
 import tempfile
 from pathlib import Path
-from dotenv import load_dotenv
+from app import config  # noqa: F401  (loads .env)
 from datetime import datetime, date
 import time
 
@@ -12,8 +12,8 @@ from app import db, store
 from app.models import Event
 from app.date_utils import Weekdays, next_weekday
 
-# Load env
-load_dotenv()
+# Fixed session id: the eval runs against a temp DB as a single fake visitor
+EVAL_SESSION = "eval-session"
 
 # 3 Goals:
 # Test add, test remove, test correct date arithmetic
@@ -50,7 +50,7 @@ def eval_add_and_dates():
 
             # Log the time before and after
             start = time.perf_counter()
-            result = parse_command(prompt, now).command
+            result = parse_command(EVAL_SESSION, prompt, now).command
             delta_time = time.perf_counter() - start
             times.append(delta_time)
 
@@ -101,9 +101,9 @@ def use_temp_db():
     db.init_db()
 
 def seed_events(events: dict[str, Event]):
-    store.clear_store()
+    store.clear_store(EVAL_SESSION)
     for event_id, event in events.items():
-        store.add_event(event, event_id)
+        store.add_event(EVAL_SESSION, event, event_id)
 
 def eval_remove():
     print("\nTEST REMOVE:\n")
@@ -115,7 +115,7 @@ def eval_remove():
         num_total +=1
         try:
             start = time.perf_counter()
-            result = parse_command(prompt, remove_now).command
+            result = parse_command(EVAL_SESSION, prompt, remove_now).command
             delta_time = time.perf_counter() - start
             times.append(delta_time)
 

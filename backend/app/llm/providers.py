@@ -1,16 +1,15 @@
-import os
-from pathlib import Path
 import instructor
 from openai import OpenAI
 import anthropic
+from functools import lru_cache
 
+from app.config import settings
 from app.llm.protocols import LLMProvider, T
-
 
 class AnthropicProvider:
 
     def __init__(self):
-        self.model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5")
+        self.model = settings.anthropic_model
         self.client = instructor.from_anthropic(anthropic.Anthropic(), mode=instructor.Mode.ANTHROPIC_JSON, )        
 
     def parse(self, system, user, response_model, context=None):
@@ -28,8 +27,8 @@ class OllamaProvider:
 
     def __init__(self):
 
-        self.model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-        url = os.getenv("OLLAMA_URL", "http://localhost:11434/v1")
+        self.model = settings.ollama_model
+        url = settings.ollama_url
 
         self.client = instructor.from_openai(
         OpenAI(base_url=url, api_key="ollama"),
@@ -49,10 +48,11 @@ class OllamaProvider:
             ]
         )
 
+@lru_cache(maxsize=1)
 def get_provider() -> LLMProvider:
-    service = os.getenv('LLM_PROVIDER', 'anthropic')
+    service = settings.llm_provider
     if service == 'ollama':
         return OllamaProvider()
-    elif service == 'anthropic':
+    if service == 'anthropic':
         return AnthropicProvider()
     raise ValueError(f"Unknown Provider: {service}")

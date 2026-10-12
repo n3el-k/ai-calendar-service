@@ -1,24 +1,44 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Response, Request, Depends
 from fastapi.responses import JSONResponse
-from instructor import exceptions
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from anthropic import APIError as AnthropicAPIError
 from openai import APIError as OpenAIAPIError
-from dotenv import load_dotenv
-import os
+
+import secrets
+from instructor import exceptions
 
 from app import store
+from app.config import settings
 from app.llm.parse import parse_command
 from app.models import UserInput
 from app.db import init_db
 
 # Setup app
-load_dotenv()
 app = FastAPI()
 
 # Setup db
 init_db()
-if os.getenv("RESET_DB_ON_START", "").lower() in ("1", "true", "yes"):
-    store.clear_store()
+store.delete_stale_sessions(7)
+if settings.reset_db_on_start:
+    store.clear_all()
+
+# rate limiting using slow api
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+llm_limit = limiter.shared_limit("10/minute;40/day", scope='llm')
+
+# cookies
+def get_session_id(request: Request, response: Response) -> str:
+    sid = request.cookies.get('session_id')
+    if not sid or len(sid) != 32: 
+        sid = secrets.token_hex(16) # 1 byte is 2 hex characters
+    response.set_cookie('session_id', sid, httponly=True, samesite="lax", max_age=604800) # max_age = 7days
+    store.touch_session(sid)
+    return sid
 
 # Exception functions
 @app.exception_handler(exceptions.InstructorRetryException)
@@ -30,41 +50,47 @@ async def llm_retry_handler(request: Request, exc: exceptions.InstructorRetryExc
 async def llm_api_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=502, content={"detail": "LLM provider error"})
 
-# API Functons
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: Exception):
+    return JSONResponse(status_code=429, content={"detail": "dont finish my api key plz (rate limit exceeded try again later)"})
+
+# API Endpoints
 @app.post("/command")
-def process_command(text_request: UserInput):
-    processed_command = parse_command(text_request.request)
+@llm_limit
+def process_command(request: Request, text_request: UserInput, sid: str = Depends(get_session_id)):
+    processed_command = parse_command(sid, text_request.request)
     if processed_command.command.action == "add":
-        id = store.add_event(processed_command.command)
+        id = store.add_event(sid, processed_command.command)
         return {"id": id}
     
     # If remove, check if id is none
     if processed_command.command.event_id is None:
         raise HTTPException(404, "No event matches that request")
 
-    removed_event = store.remove_event(processed_command.command.event_id)
+    removed_event = store.remove_event(sid, processed_command.command.event_id)
     return {"removed_event": removed_event}
 
 # Does not add to database, just used for checking without storing
 @app.post("/parse")
-def parse(text_request: UserInput):
-    processed_command = parse_command(text_request.request)
+@llm_limit
+def parse(request: Request, text_request: UserInput, sid: str = Depends(get_session_id)):
+    processed_command = parse_command(sid, text_request.request)
     return processed_command.command
 
 @app.get("/events")
-def get_events():
-    return store.list_events()
+def get_events(sid: str = Depends(get_session_id)):
+    return store.list_events(sid)
 
 # For deleting manually without LLM. Need exact ID
 @app.delete("/events/{event_id}")
-def delete(event_id: str):
-    removed_event = store.remove_event(event_id)
+def delete(event_id: str, sid: str = Depends(get_session_id)):
+    removed_event = store.remove_event(sid, event_id)
     if removed_event is None:
         raise HTTPException(404, "No event matches that request")
     return {"removed_event": removed_event}
 
-# Reset: clears every event (the demo shares a single DB for the session)
+# Reset: clears every event for a session
 @app.delete("/events")
-def clear_events():
-    store.clear_store()
+def clear_events(sid: str = Depends(get_session_id)):
+    store.clear_store(sid)
     return {"cleared": True}
