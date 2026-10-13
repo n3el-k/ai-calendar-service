@@ -62,8 +62,12 @@ def process_command(request: Request, text_request: UserInput, sid: str = Depend
     processed_command = parse_command(sid, text_request.request).command
 
     if processed_command.action == "add":
+        conflicts = store.find_conflicts(sid, processed_command)
+        if conflicts:
+            store.set_pending(sid, processed_command)
+            return {"status": "needs_confirmation", "pending": processed_command.model_dump(exclude={"action"})}
         id = store.add_event(sid, processed_command)
-        return {"id": id}
+        return {"status": "added", "id": id}
 
     if processed_command.event_id is None:
         raise HTTPException(404, "No event matches that request")
@@ -82,6 +86,29 @@ def process_command(request: Request, text_request: UserInput, sid: str = Depend
 
     removed_event = store.remove_event(sid, processed_command.event_id)
     return {"removed_event": removed_event}
+
+# Pending endpoints
+@app.get("/pending")
+def get_pending(sid: str = Depends(get_session_id)):
+
+    event = store.get_pending(sid)
+    return {"pending": event}
+
+@app.post("/pending/confirm")
+def confirm_pending(sid: str = Depends(get_session_id)):
+
+    id = store.confirm_pending(sid)
+
+    if id is None:
+        raise HTTPException(404, "Nothing pending to confirm")
+    
+    return {"status": "confirmed", "id": id}
+
+@app.delete("/pending")
+def delete_pending(sid: str = Depends(get_session_id)):
+
+    store.clear_pending(sid)
+    return {'cleared': True}
 
 # Does not add to database, just used for checking without storing
 @app.post("/parse")

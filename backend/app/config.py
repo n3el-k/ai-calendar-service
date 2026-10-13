@@ -13,5 +13,6 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434/v1"
     reset_db_on_start: bool = False
     db_path: Path = Path(__file__).resolve().parent.parent / "calendar.db"
+    default_event_duration_minutes: int = 60
 
 settings = Settings()

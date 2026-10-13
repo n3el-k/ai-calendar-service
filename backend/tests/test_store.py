@@ -141,6 +141,48 @@ def test_format_for_prompt_one_line_per_event_in_given_order():
         "2026-10-08 09:00 (Thursday) | Standup | id=s2"
     )
 
+# conflicts
+
+def test_conflicts_same_day_overlap_without_exclude_id():
+    store.add_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
+                                        end_day_time=datetime(2026, 10, 6, 16, 0)), "dentist")
+    new = make_event("Team sync", datetime(2026, 10, 6, 15, 30),
+                     end_day_time=datetime(2026, 10, 6, 16, 30))
+
+    conflicts = store.find_conflicts(SESSION, new)
+
+    assert list(conflicts) == ["dentist"]
+
+def test_conflicts_back_to_back_is_not_a_conflict():
+    store.add_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
+                                        end_day_time=datetime(2026, 10, 6, 16, 0)), "dentist")
+    gym = make_event("Gym", datetime(2026, 10, 6, 16, 0),
+                     end_day_time=datetime(2026, 10, 6, 17, 0))
+
+    assert store.find_conflicts(SESSION, gym) == {}
+
+# pending (held conflicting adds)
+
+def test_pending_round_trip():
+    store.set_pending(SESSION, make_event("Gym", datetime(2026, 10, 6, 15, 30)))
+    pending = store.get_pending(SESSION)
+    assert pending is not None
+    assert pending.title == "Gym"
+
+    event_id = store.confirm_pending(SESSION)
+
+    assert event_id is not None
+    assert store.list_events(SESSION)[event_id].title == "Gym"
+    assert store.get_pending(SESSION) is None
+
+def test_set_pending_replaces_previous():
+    store.set_pending(SESSION, make_event("Gym"))
+    store.set_pending(SESSION, make_event("Swim"))
+
+    pending = store.get_pending(SESSION)
+    assert pending is not None
+    assert pending.title == "Swim"
+
 # sessions: each session only sees and changes its own events
 
 def test_list_only_returns_own_session_events():

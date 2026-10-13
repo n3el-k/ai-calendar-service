@@ -15,14 +15,18 @@ def init_db():
     create_sessions_table_query = """
     CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, last_seen TEXT)
     """
-
     create_index_sessions_table_query = """
     CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)
+    """
+    create_pending_table_query = """
+    CREATE TABLE IF NOT EXISTS pending_actions (session_id TEXT PRIMARY KEY,
+        event_json TEXT NOT NULL, created_at TEXT NOT NULL)
     """
 
     connection.execute(create_events_table_query)
     connection.execute(create_sessions_table_query)
     connection.execute(create_index_sessions_table_query)
+    connection.execute(create_pending_table_query)
     
     close_connection(connection)
 
