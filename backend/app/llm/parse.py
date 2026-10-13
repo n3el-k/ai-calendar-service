@@ -23,6 +23,7 @@ Date rules:
 - "today" and "tomorrow" are marked in the list.
 - If the user gives a specific date (for example "October 24"), use that date.
 - Never use a date before today.
+- If a time has no am/pm, choose the more likely one for that kind of event (for example "lunch at 1" is 13:00, "breakfast at 8" is 08:00).
 - For remove and update, only pick an event whose title matches what the user is referring to. If no event title matches, event_id must be null. Never pick an unrelated event.
 
 The current date and time is: {now}

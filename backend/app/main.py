@@ -64,7 +64,7 @@ def process_command(request: Request, text_request: UserInput, sid: str = Depend
     if processed_command.action == "add":
         conflicts = store.find_conflicts(sid, processed_command)
         if conflicts:
-            store.set_pending(sid, processed_command)
+            store.set_pending(sid, "add", None, processed_command)
             return {"status": "needs_confirmation", "pending": processed_command.model_dump(exclude={"action"})}
         id = store.add_event(sid, processed_command)
         return {"status": "added", "id": id}
@@ -73,19 +73,18 @@ def process_command(request: Request, text_request: UserInput, sid: str = Depend
         raise HTTPException(404, "No event matches that request")
 
     if processed_command.action == "update":
-        # Wrap in try/except since Validation Erorr might arise
         try:
-            updated = store.update_event(sid, processed_command.event_id,  processed_command)
+            result = store.update_event(sid, processed_command.event_id, processed_command)
 
-            if updated is None:
+            if result is None:
                 raise HTTPException(404, "No event matches that request")
-            
-            return {"updated_event": updated}
+
+            return result
         except ValidationError:
             raise HTTPException(422, "end time can not be before event start.")
 
     removed_event = store.remove_event(sid, processed_command.event_id)
-    return {"removed_event": removed_event}
+    return {"status": "removed", "event": removed_event}
 
 # Pending endpoints
 @app.get("/pending")
@@ -97,12 +96,12 @@ def get_pending(sid: str = Depends(get_session_id)):
 @app.post("/pending/confirm")
 def confirm_pending(sid: str = Depends(get_session_id)):
 
-    id = store.confirm_pending(sid)
+    confirmed = store.confirm_pending(sid)
 
-    if id is None:
-        raise HTTPException(404, "Nothing pending to confirm")
-    
-    return {"status": "confirmed", "id": id}
+    if confirmed is None:
+        raise HTTPException(404, "Nothing to confirm (it may have been cancelled or deleted)")
+
+    return {"status": "confirmed", **confirmed}
 
 @app.delete("/pending")
 def delete_pending(sid: str = Depends(get_session_id)):

@@ -212,10 +212,30 @@ def eval_update():
         summary += f" | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}"
     print(summary)
 
+# Test times without am/pm
+time_prompts: dict[str, datetime] = {
+    "Dinner at 7 on Friday": datetime(2026, 10, 9, 19, 0),
+}
+
+def eval_times():
+    print("\nTEST TIMES:\n")
+    fails = 0
+    for prompt, expected in time_prompts.items():
+        start = time.perf_counter()
+        result = parse_command(EVAL_SESSION, prompt, remove_now).command
+        delta_time = time.perf_counter() - start
+
+        got = result.start_day_time if result.action == "add" else None
+        mark = "PASS" if got == expected else "FAIL"
+        if mark == "FAIL":
+            fails += 1
+        print(f"{mark}  prompt={prompt!r:32}  expected {expected:%a %m-%d %H:%M}  got {got},      inference time: {delta_time:.2f}")
+    print(f"\n{len(time_prompts)} cases | time fails: {fails}")
+
 def test():
 
     parser = argparse.ArgumentParser(description="Eval parse_command")
-    parser.add_argument("suite", nargs="?", default="all", choices=["all", "add", "remove", "update"])
+    parser.add_argument("suite", nargs="?", default="all", choices=["all", "add", "remove", "update", "times"])
     args = parser.parse_args()
 
     use_temp_db()
@@ -226,9 +246,12 @@ def test():
         eval_remove()
     elif(args.suite == "update"):
         eval_update()
+    elif args.suite == "times":
+        eval_times()
     else:
         eval_add_and_dates()
         eval_remove()
         eval_update()
+        eval_times()
 if __name__ == "__main__":
     test()

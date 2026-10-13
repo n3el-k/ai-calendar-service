@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any, Literal
 from uuid import uuid4
 import json
 
@@ -37,34 +38,21 @@ def add_event(session_id: str, event: Event, event_id: str | None = None) -> str
     close_connection(connection)
     return id
 
-def update_event(session_id: str, event_id: str, changes: UpdateEvent) -> Event | None:
+def update_event(session_id: str, event_id: str, changes: UpdateEvent) -> dict[str, Any] | None:
 
-    connection = get_connection()
-    fetch_row_query = "SELECT * FROM events WHERE id = ? AND session_id = ?"
-    row = connection.execute(fetch_row_query, (event_id, session_id)).fetchone()
-
-    if row is None:
-        close_connection(connection)
+    event = _get_event(session_id, event_id)
+    if event is None:
         return None
-    event = _row_to_event(row)
+
     new_event = _merge_update(event, changes)
+    conflicts = find_conflicts(session_id, new_event, event_id)
 
-    update_event_query = """UPDATE events
-    SET title=?, start_day_time=?, end_day_time=?, location=?
-    WHERE id = ? AND session_id = ?
-    """
-    
-    connection.execute(update_event_query, (
-        new_event.title,
-        new_event.start_day_time.isoformat(),
-        new_event.end_day_time.isoformat() if new_event.end_day_time else None,
-        new_event.location,
-        event_id,
-        session_id,
-    ))
-    close_connection(connection)
+    if conflicts:
+        set_pending(session_id, "update", event_id, new_event)
+        return {"status": "needs_confirmation", "pending": new_event, "conflicts": conflicts}
 
-    return new_event
+    _write_event(session_id, event_id, new_event)
+    return {"status": "updated", "event": new_event}
 
 def list_events(session_id: str) -> dict[str, Event]:
 
@@ -148,19 +136,21 @@ def find_conflicts(session_id: str, query_event: Event, exclude_id: str | None =
             result[row["id"]] = event
     return result
 
-def set_pending(session_id: str, event: Event) -> None:
+def set_pending(session_id: str, action: Literal['add', 'update'], event_id: str | None, event: Event) -> None:
 
     # upsert
     connection = get_connection()
+
     query = """
     INSERT INTO pending_actions (session_id, event_json, created_at) VALUES (?, ?, ?)
     ON CONFLICT (session_id) DO UPDATE SET event_json = excluded.event_json, created_at = excluded.created_at
     """
-    event_json = json.dumps({"action": "add", "event": event.model_dump(mode="json", exclude={"action"})})
+
+    event_json = json.dumps({"action": action, "event_id": event_id, "event": event.model_dump(mode="json", exclude={"action"})})
     connection.execute(query, (session_id, event_json, datetime.now().isoformat()))
     close_connection(connection)
 
-def get_pending(session_id: str) -> Event | None:
+def get_pending(session_id: str) -> dict[str, Any] | None:
 
     connection = get_connection()
     row = connection.execute("SELECT event_json FROM pending_actions WHERE session_id = ?", (session_id,)).fetchone()
@@ -170,9 +160,10 @@ def get_pending(session_id: str) -> Event | None:
 
     # load the json
     data = json.loads(row["event_json"])
-    return Event.model_validate(data["event"])
+    data["event"] = Event.model_validate(data["event"])
+    return data  # {"action", "event_id", "event"}
 
-def confirm_pending(session_id: str) -> str | None:
+def confirm_pending(session_id: str) -> dict[str, str] | None:
 
     connection = get_connection()
 
@@ -186,7 +177,11 @@ def confirm_pending(session_id: str) -> str | None:
     event = Event.model_validate(data["event"])
     if data['action'] == 'add':
         id = add_event(session_id, event)
-        return id
+        return {"action": "add", "id": id}
+    elif data['action'] == 'update':
+        if not _write_event(session_id, data['event_id'], event):
+            return None  # event was deleted after it was held
+        return {"action": "update", "id": data['event_id']}
     raise ValueError(f"unknown pending action {data['action']!r}")
 
 def clear_pending(session_id: str) -> None:
@@ -233,6 +228,31 @@ def _merge_update(event: Event, changes: UpdateEvent) -> Event:
     new_event = Event(**{**event.model_dump(), **changed_elem}) # This also checks start < end!
     
     return new_event
+
+def _get_event(session_id: str, event_id: str) -> Event | None:
+    connection = get_connection()
+    row = connection.execute("SELECT * FROM events WHERE id = ? AND session_id = ?",
+                             (event_id, session_id)).fetchone()
+    close_connection(connection)
+    return _row_to_event(row) if row else None
+
+def _write_event(session_id: str, event_id: str, event: Event) -> bool:
+    connection = get_connection()
+    update_event_query = """UPDATE events
+    SET title=?, start_day_time=?, end_day_time=?, location=?
+    WHERE id = ? AND session_id = ?
+    """
+
+    cursor = connection.execute(update_event_query, (
+        event.title,
+        event.start_day_time.isoformat(),
+        event.end_day_time.isoformat() if event.end_day_time else None,
+        event.location,
+        event_id,
+        session_id,
+    ))
+    close_connection(connection)
+    return cursor.rowcount == 1
 
 def _row_to_event(row) -> Event:
 

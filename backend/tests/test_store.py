@@ -161,27 +161,54 @@ def test_conflicts_back_to_back_is_not_a_conflict():
 
     assert store.find_conflicts(SESSION, gym) == {}
 
-# pending (held conflicting adds)
+# pending (held conflicting adds and updates)
 
 def test_pending_round_trip():
-    store.set_pending(SESSION, make_event("Gym", datetime(2026, 10, 6, 15, 30)))
+    store.set_pending(SESSION, "add", None, make_event("Gym", datetime(2026, 10, 6, 15, 30)))
     pending = store.get_pending(SESSION)
     assert pending is not None
-    assert pending.title == "Gym"
+    assert pending["action"] == "add"
+    assert pending["event"].title == "Gym"
 
-    event_id = store.confirm_pending(SESSION)
+    confirmed = store.confirm_pending(SESSION)
 
-    assert event_id is not None
-    assert store.list_events(SESSION)[event_id].title == "Gym"
+    assert confirmed is not None
+    assert confirmed["action"] == "add"
+    assert store.list_events(SESSION)[confirmed["id"]].title == "Gym"
     assert store.get_pending(SESSION) is None
 
 def test_set_pending_replaces_previous():
-    store.set_pending(SESSION, make_event("Gym"))
-    store.set_pending(SESSION, make_event("Swim"))
+    store.set_pending(SESSION, "add", None, make_event("Gym"))
+    store.set_pending(SESSION, "add", None, make_event("Swim"))
 
     pending = store.get_pending(SESSION)
     assert pending is not None
-    assert pending.title == "Swim"
+    assert pending["event"].title == "Swim"
+
+def test_conflicting_update_is_held_then_confirmed():
+    store.add_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 10, 0),
+                                        end_day_time=datetime(2026, 10, 6, 11, 0)), "dentist")
+    store.add_event(SESSION, make_event("Gym", datetime(2026, 10, 6, 15, 0),
+                                        end_day_time=datetime(2026, 10, 6, 16, 0)), "gym")
+
+    result = store.update_event(SESSION, "dentist",
+                                UpdateEvent(event_id="dentist", start_day_time=datetime(2026, 10, 6, 15, 30)))
+
+    assert result is not None
+    assert result["status"] == "needs_confirmation"
+    assert list(result["conflicts"]) == ["gym"]
+    assert store.list_events(SESSION)["dentist"].start_day_time == datetime(2026, 10, 6, 10, 0)
+
+    assert store.confirm_pending(SESSION) == {"action": "update", "id": "dentist"}
+
+    events = store.list_events(SESSION)
+    assert len(events) == 2  # moved, not copied
+    assert events["dentist"].start_day_time == datetime(2026, 10, 6, 15, 30)
+
+def test_confirm_held_update_of_deleted_event_returns_none():
+    store.set_pending(SESSION, "update", "gone", make_event("Dentist"))
+
+    assert store.confirm_pending(SESSION) is None
 
 # sessions: each session only sees and changes its own events
 
@@ -275,8 +302,9 @@ def _seed(**kwargs) -> str:
 def test_update_changes_only_given_fields():
     _seed(location="Clinic", end_day_time=datetime(2026, 10, 6, 11, 0))
 
-    updated = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", title="Checkup"))
-    assert updated is not None
+    result = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", title="Checkup"))
+    assert result is not None
+    updated = result["event"]
 
     assert updated.title == "Checkup"
     assert updated.start_day_time == datetime(2026, 10, 6, 10, 0)
@@ -298,8 +326,9 @@ def test_update_cannot_change_other_sessions_event():
 def test_update_start_shifts_end_by_same_amount():
     _seed(end_day_time=datetime(2026, 10, 6, 11, 30))
 
-    updated = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0)))
-    assert updated is not None
+    result = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0)))
+    assert result is not None
+    updated = result["event"]
 
     assert updated.start_day_time == datetime(2026, 10, 8, 15, 0)
     assert updated.end_day_time == datetime(2026, 10, 8, 16, 30)
@@ -307,17 +336,19 @@ def test_update_start_shifts_end_by_same_amount():
 def test_update_start_without_existing_end_leaves_end_none():
     _seed()
 
-    updated = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0)))
-    assert updated is not None
+    result = store.update_event(SESSION, "e1", UpdateEvent(event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0)))
+    assert result is not None
+    updated = result["event"]
 
     assert updated.end_day_time is None
 
 def test_update_explicit_end_is_not_shifted():
     _seed(end_day_time=datetime(2026, 10, 6, 11, 0))
 
-    updated = store.update_event(SESSION, "e1", UpdateEvent(
+    result = store.update_event(SESSION, "e1", UpdateEvent(
         event_id="e1", start_day_time=datetime(2026, 10, 8, 15, 0), end_day_time=datetime(2026, 10, 8, 18, 0)))
-    assert updated is not None
+    assert result is not None
+    updated = result["event"]
 
     assert updated.end_day_time == datetime(2026, 10, 8, 18, 0)
 
