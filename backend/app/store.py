@@ -42,20 +42,17 @@ def update_event(session_id: str, event_id: str, changes: UpdateEvent) -> Event 
     connection = get_connection()
     fetch_row_query = "SELECT * FROM events WHERE id = ? AND session_id = ?"
     row = connection.execute(fetch_row_query, (event_id, session_id)).fetchone()
-    close_connection(connection)
 
     if row is None:
+        close_connection(connection)
         return None
     event = _row_to_event(row)
     new_event = _merge_update(event, changes)
-
-    conflicts = find_conflicts(session_id, new_event, event_id)
 
     update_event_query = """UPDATE events
     SET title=?, start_day_time=?, end_day_time=?, location=?
     WHERE id = ? AND session_id = ?
     """
-
     
     connection.execute(update_event_query, (
         new_event.title,
@@ -65,6 +62,8 @@ def update_event(session_id: str, event_id: str, changes: UpdateEvent) -> Event 
         event_id,
         session_id,
     ))
+    close_connection(connection)
+
     return new_event
 
 def list_events(session_id: str) -> dict[str, Event]:
@@ -221,7 +220,7 @@ def format_for_prompt(candidates: dict[str, Event]) -> str:
         lines.append(f"{event.start_day_time:%Y-%m-%d %H:%M (%A)} | {event.title} | id={id}")
     return "\n".join(lines)
 
-def _merge_update(event, changes) -> Event:
+def _merge_update(event: Event, changes: UpdateEvent) -> Event:
 
     changed_elem = changes.model_dump(exclude={"action", "event_id"}, exclude_none=True)
 
@@ -231,7 +230,7 @@ def _merge_update(event, changes) -> Event:
         delta = new_start - event.start_day_time
         changed_elem["end_day_time"] = event.end_day_time + delta
 
-        new_event = Event(**{**event.model_dump(), **changed_elem}) # This also checks start < end!
+    new_event = Event(**{**event.model_dump(), **changed_elem}) # This also checks start < end!
     
     return new_event
 
