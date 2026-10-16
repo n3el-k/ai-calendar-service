@@ -103,7 +103,7 @@ def use_temp_db():
 def seed_events(events: dict[str, Event]):
     store.clear_store(EVAL_SESSION)
     for event_id, event in events.items():
-        store.add_event(EVAL_SESSION, event, event_id)
+        store.insert_event(EVAL_SESSION, event, event_id)
 
 def eval_remove():
     print("\nTEST REMOVE:\n")

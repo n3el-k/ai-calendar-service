@@ -7,6 +7,8 @@ from app.models import Event, UpdateEvent
 from app.db import get_connection, close_connection
 from app.config import settings
 
+SEARCH_LIMIT = 30
+
 def remove_event(session_id: str, event_id: str) -> Event | None:
 
     select_row_query = "SELECT * FROM events WHERE id = ? AND session_id = ?"
@@ -21,8 +23,18 @@ def remove_event(session_id: str, event_id: str) -> Event | None:
         return _row_to_event(row)
     return None
 
-def add_event(session_id: str, event: Event, event_id: str | None = None) -> str:    
-    # The event being passed in is a models.AddEvent as that is what the LLM outputs.
+def add_event(session_id: str, event: Event) -> dict[str, Any]:
+    event = Event(**event.model_dump(exclude={"action"}))  # AddEvent from the LLM -> plain Event
+    conflicts = find_conflicts(session_id, event)
+
+    if conflicts:
+        set_pending(session_id, "add", None, event)
+        return {"status": "needs_confirmation", "pending": event, "conflicts": conflicts}
+
+    return {"status": "added", "id": insert_event(session_id, event)}
+
+def insert_event(session_id: str, event: Event, event_id: str | None = None) -> str:
+
     event = Event(**event.model_dump(exclude={"action"})) # Convert to regular event
     id = event_id or uuid4().hex[:8]  # event_id lets tests seed known ids
 
@@ -51,7 +63,7 @@ def update_event(session_id: str, event_id: str, changes: UpdateEvent) -> dict[s
         set_pending(session_id, "update", event_id, new_event)
         return {"status": "needs_confirmation", "pending": new_event, "conflicts": conflicts}
 
-    _write_event(session_id, event_id, new_event)
+    overwrite_event(session_id, event_id, new_event)
     return {"status": "updated", "event": new_event}
 
 def list_events(session_id: str) -> dict[str, Event]:
@@ -62,6 +74,35 @@ def list_events(session_id: str) -> dict[str, Event]:
     result = {row["id"]: _row_to_event(row) for row in rows}
 
     close_connection(connection) 
+    return result
+
+def search_events(session_id: str, query: str | None = None, start_time: datetime | None = None, 
+                  end_time: datetime | None = None) -> dict[str, Event]:
+    
+    connection = get_connection()
+
+    conditions = ["session_id = ?"]
+    params: list = [session_id]
+
+    if query:
+        conditions.append("title LIKE ?")
+        params.append(f"%{query}%")
+    if start_time:
+        conditions.append("start_day_time >= ?")
+        params.append(start_time.isoformat())
+    if end_time:
+        conditions.append("start_day_time < ?")
+        params.append(end_time.isoformat())
+
+    # Add limit
+    params.append(SEARCH_LIMIT)
+
+    sql = f"SELECT * FROM events WHERE {' AND '.join(conditions)} ORDER BY start_day_time LIMIT ?"
+
+    rows= connection.execute(sql, params).fetchall()
+    close_connection(connection)
+
+    result = {row["id"]: _row_to_event(row) for row in rows}
     return result
 
 def events_near(session_id: str, now: datetime, days_back: int = 1, days_ahead: int = 14) -> dict[str, Event]:
@@ -176,10 +217,10 @@ def confirm_pending(session_id: str) -> dict[str, str] | None:
     data = json.loads(row["event_json"])
     event = Event.model_validate(data["event"])
     if data['action'] == 'add':
-        id = add_event(session_id, event)
+        id = insert_event(session_id, event)
         return {"action": "add", "id": id}
     elif data['action'] == 'update':
-        if not _write_event(session_id, data['event_id'], event):
+        if not overwrite_event(session_id, data['event_id'], event):
             return None  # event was deleted after it was held
         return {"action": "update", "id": data['event_id']}
     raise ValueError(f"unknown pending action {data['action']!r}")
@@ -236,7 +277,7 @@ def _get_event(session_id: str, event_id: str) -> Event | None:
     close_connection(connection)
     return _row_to_event(row) if row else None
 
-def _write_event(session_id: str, event_id: str, event: Event) -> bool:
+def overwrite_event(session_id: str, event_id: str, event: Event) -> bool:
     connection = get_connection()
     update_event_query = """UPDATE events
     SET title=?, start_day_time=?, end_day_time=?, location=?

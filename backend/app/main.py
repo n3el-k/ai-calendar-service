@@ -62,12 +62,7 @@ def process_command(request: Request, text_request: UserInput, sid: str = Depend
     processed_command = parse_command(sid, text_request.request).command
 
     if processed_command.action == "add":
-        conflicts = store.find_conflicts(sid, processed_command)
-        if conflicts:
-            store.set_pending(sid, "add", None, processed_command)
-            return {"status": "needs_confirmation", "pending": processed_command.model_dump(exclude={"action"})}
-        id = store.add_event(sid, processed_command)
-        return {"status": "added", "id": id}
+        return store.add_event(sid, processed_command)
 
     if processed_command.event_id is None:
         raise HTTPException(404, "No event matches that request")

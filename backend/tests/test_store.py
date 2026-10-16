@@ -14,7 +14,7 @@ def make_event(title="Dentist", start=datetime(2026, 10, 6, 10, 0), **kwargs) ->
     return Event(title=title, start_day_time=start, **kwargs)
 
 def test_add_returns_id_and_event_is_listed():
-    event_id = store.add_event(SESSION, make_event("Dentist"))
+    event_id = store.insert_event(SESSION, make_event("Dentist"))
 
     events = store.list_events(SESSION)
     assert list(events) == [event_id]
@@ -22,33 +22,33 @@ def test_add_returns_id_and_event_is_listed():
     assert events[event_id].start_day_time == datetime(2026, 10, 6, 10, 0)
 
 def test_generated_ids_are_unique():
-    ids = {store.add_event(SESSION, make_event()) for _ in range(20)}
+    ids = {store.insert_event(SESSION, make_event()) for _ in range(20)}
     assert len(ids) == 20 # if not 20 -> some ids are dupes!
 
 def test_optional_fields_default_to_none():
-    event_id = store.add_event(SESSION, make_event())
+    event_id = store.insert_event(SESSION, make_event())
 
     stored = store.list_events(SESSION)[event_id]
     assert stored.end_day_time is None
     assert stored.location is None
 
 def test_add_accepts_llm_add_event():
-    event_id = store.add_event(SESSION, AddEvent(title="Bowling", start_day_time=datetime(2026, 10, 8, 18, 0)))
+    event_id = store.insert_event(SESSION, AddEvent(title="Bowling", start_day_time=datetime(2026, 10, 8, 18, 0)))
 
     assert store.list_events(SESSION)[event_id].title == "Bowling"
 
 def test_timezone_aware_datetime_is_stored_naive():
     aware = datetime(2026, 10, 6, 10, 0, tzinfo=timezone.utc)
-    event_id = store.add_event(SESSION, make_event(start=aware))
+    event_id = store.insert_event(SESSION, make_event(start=aware))
 
     stored = store.list_events(SESSION)[event_id]
     assert stored.start_day_time.tzinfo is None
     assert stored.start_day_time == aware.astimezone().replace(tzinfo=None)
 
 def test_list_is_ordered_by_start_time():
-    store.add_event(SESSION, make_event("late", datetime(2026, 10, 9, 9, 0)), "late")
-    store.add_event(SESSION, make_event("early", datetime(2026, 10, 6, 9, 0)), "early")
-    store.add_event(SESSION, make_event("mid", datetime(2026, 10, 7, 9, 0)), "mid")
+    store.insert_event(SESSION, make_event("late", datetime(2026, 10, 9, 9, 0)), "late")
+    store.insert_event(SESSION, make_event("early", datetime(2026, 10, 6, 9, 0)), "early")
+    store.insert_event(SESSION, make_event("mid", datetime(2026, 10, 7, 9, 0)), "mid")
 
     assert list(store.list_events(SESSION)) == ["early", "mid", "late"]
 
@@ -58,7 +58,7 @@ def test_list_empty():
 # remove
 
 def test_remove_returns_event_and_deletes_it():
-    event_id = store.add_event(SESSION, make_event("Dentist"))
+    event_id = store.insert_event(SESSION, make_event("Dentist"))
 
     removed = store.remove_event(SESSION, event_id)
 
@@ -70,15 +70,15 @@ def test_remove_unknown_id_returns_none():
     assert store.remove_event(SESSION, "nope") is None
 
 def test_remove_leaves_other_events():
-    keep = store.add_event(SESSION, make_event("keep"))
-    drop = store.add_event(SESSION, make_event("drop"))
+    keep = store.insert_event(SESSION, make_event("keep"))
+    drop = store.insert_event(SESSION, make_event("drop"))
 
     store.remove_event(SESSION, drop)
 
     assert list(store.list_events(SESSION)) == [keep]
 
 def test_remove_twice_second_returns_none():
-    event_id = store.add_event(SESSION, make_event())
+    event_id = store.insert_event(SESSION, make_event())
 
     assert store.remove_event(SESSION, event_id) is not None
     assert store.remove_event(SESSION, event_id) is None
@@ -86,37 +86,73 @@ def test_remove_twice_second_returns_none():
 # clear
 
 def test_clear_store_removes_everything():
-    store.add_event(SESSION, make_event("a"))
-    store.add_event(SESSION, make_event("b"))
+    store.insert_event(SESSION, make_event("a"))
+    store.insert_event(SESSION, make_event("b"))
 
     store.clear_store(SESSION)
 
     assert store.list_events(SESSION) == {}
 
+# search_events (seed: dentist 14:00-16:00, date 15:00-17:00, same day)
+
+def _seed_search():
+    day = datetime(2026, 10, 16)
+    store.insert_event(SESSION, make_event("Dentist appointment", day.replace(hour=14),
+                                           end_day_time=day.replace(hour=16)), "dentist")
+    store.insert_event(SESSION, make_event("Date with Sam", day.replace(hour=15),
+                                           end_day_time=day.replace(hour=17)), "date")
+
+def test_search_by_name_is_case_insensitive():
+    _seed_search()
+
+    assert list(store.search_events(SESSION, query="dentist")) == ["dentist"]
+
+@pytest.mark.parametrize("start, end, expected", [
+    # start and end
+    (datetime(2026, 10, 16), datetime(2026, 10, 17), ["dentist", "date"]),
+    (datetime(2026, 10, 17), datetime(2026, 10, 18), []),
+    # just start (inclusive)
+    (datetime(2026, 10, 16, 15), None, ["date"]),
+    (datetime(2026, 10, 17), None, []),
+    # just end (exclusive: the date starting at 15:00 is not included)
+    (None, datetime(2026, 10, 16, 15), ["dentist"]),
+    (None, datetime(2026, 10, 16, 14), []),
+])
+def test_search_by_range(start, end, expected):
+    _seed_search()
+
+    assert list(store.search_events(SESSION, start_time=start, end_time=end)) == expected
+
+def test_search_never_returns_other_sessions_events():
+    _seed_search()
+    store.insert_event(OTHER, make_event("Dentist appointment", datetime(2026, 10, 16, 14)), "theirs")
+
+    assert "theirs" not in store.search_events(SESSION, query="dentist")
+
 # events_near (default window: 1 day back, 14 days ahead)
 
 def test_events_near_includes_events_inside_window():
-    inside = store.add_event(SESSION, make_event("inside", NOW + timedelta(days=3)))
+    inside = store.insert_event(SESSION, make_event("inside", NOW + timedelta(days=3)))
 
     assert list(store.events_near(SESSION, NOW)) == [inside]
 
 def test_events_near_excludes_events_outside_window():
-    store.add_event(SESSION, make_event("too old", NOW - timedelta(days=2)))
-    store.add_event(SESSION, make_event("too far", NOW + timedelta(days=15)))
+    store.insert_event(SESSION, make_event("too old", NOW - timedelta(days=2)))
+    store.insert_event(SESSION, make_event("too far", NOW + timedelta(days=15)))
 
     assert store.events_near(SESSION, NOW) == {}
 
 def test_events_near_ordered_by_start_time():
-    store.add_event(SESSION, make_event("c", NOW + timedelta(days=5)), "c")
-    store.add_event(SESSION, make_event("a", NOW + timedelta(days=1)), "a")
-    store.add_event(SESSION, make_event("b", NOW + timedelta(days=3)), "b")
+    store.insert_event(SESSION, make_event("c", NOW + timedelta(days=5)), "c")
+    store.insert_event(SESSION, make_event("a", NOW + timedelta(days=1)), "a")
+    store.insert_event(SESSION, make_event("b", NOW + timedelta(days=3)), "b")
 
     assert list(store.events_near(SESSION, NOW)) == ["a", "b", "c"]
 
 def test_events_near_across_month_and_year_boundary():
     now = datetime(2026, 12, 30, 9, 0)
-    jan = store.add_event(SESSION, make_event("new year", datetime(2027, 1, 2, 9, 0)))
-    store.add_event(SESSION, make_event("too far", datetime(2027, 1, 20, 9, 0)))
+    jan = store.insert_event(SESSION, make_event("new year", datetime(2027, 1, 2, 9, 0)))
+    store.insert_event(SESSION, make_event("too far", datetime(2027, 1, 20, 9, 0)))
 
     assert list(store.events_near(SESSION, now)) == [jan]
 
@@ -124,7 +160,7 @@ def test_format_for_prompt_is_correct_formating():
     # since in parse.py the candidates come from events_near which is already sorted,
     # we only need to look at the formating and not the sorting
     event = make_event("Dentist")
-    id = store.add_event(SESSION, event)
+    id = store.insert_event(SESSION, event)
     # Date first (with weekday), then title, then id
     assert store.format_for_prompt({id: event}) == f"2026-10-06 10:00 (Tuesday) | Dentist | id={id}"
 
@@ -144,7 +180,7 @@ def test_format_for_prompt_one_line_per_event_in_given_order():
 # conflicts
 
 def test_conflicts_same_day_overlap_without_exclude_id():
-    store.add_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
+    store.insert_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
                                         end_day_time=datetime(2026, 10, 6, 16, 0)), "dentist")
     new = make_event("Team sync", datetime(2026, 10, 6, 15, 30),
                      end_day_time=datetime(2026, 10, 6, 16, 30))
@@ -154,7 +190,7 @@ def test_conflicts_same_day_overlap_without_exclude_id():
     assert list(conflicts) == ["dentist"]
 
 def test_conflicts_back_to_back_is_not_a_conflict():
-    store.add_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
+    store.insert_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
                                         end_day_time=datetime(2026, 10, 6, 16, 0)), "dentist")
     gym = make_event("Gym", datetime(2026, 10, 6, 16, 0),
                      end_day_time=datetime(2026, 10, 6, 17, 0))
@@ -185,10 +221,30 @@ def test_set_pending_replaces_previous():
     assert pending is not None
     assert pending["event"].title == "Swim"
 
+def test_add_without_conflict_is_added():
+    result = store.add_event(SESSION, AddEvent(title="Gym", start_day_time=datetime(2026, 10, 6, 15, 0)))
+
+    assert result["status"] == "added"
+    assert store.list_events(SESSION)[result["id"]].title == "Gym"
+    assert store.get_pending(SESSION) is None
+
+def test_conflicting_add_is_held_not_added():
+    store.insert_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 15, 0),
+                                           end_day_time=datetime(2026, 10, 6, 16, 0)), "dentist")
+
+    result = store.add_event(SESSION, AddEvent(title="Gym", start_day_time=datetime(2026, 10, 6, 15, 30)))
+
+    assert result["status"] == "needs_confirmation"
+    assert list(result["conflicts"]) == ["dentist"]
+    assert list(store.list_events(SESSION)) == ["dentist"]
+    pending = store.get_pending(SESSION)
+    assert pending is not None
+    assert pending["event"].title == "Gym"
+
 def test_conflicting_update_is_held_then_confirmed():
-    store.add_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 10, 0),
+    store.insert_event(SESSION, make_event("Dentist", datetime(2026, 10, 6, 10, 0),
                                         end_day_time=datetime(2026, 10, 6, 11, 0)), "dentist")
-    store.add_event(SESSION, make_event("Gym", datetime(2026, 10, 6, 15, 0),
+    store.insert_event(SESSION, make_event("Gym", datetime(2026, 10, 6, 15, 0),
                                         end_day_time=datetime(2026, 10, 6, 16, 0)), "gym")
 
     result = store.update_event(SESSION, "dentist",
@@ -213,27 +269,27 @@ def test_confirm_held_update_of_deleted_event_returns_none():
 # sessions: each session only sees and changes its own events
 
 def test_list_only_returns_own_session_events():
-    mine = store.add_event(SESSION, make_event("mine"))
-    theirs = store.add_event(OTHER, make_event("theirs"))
+    mine = store.insert_event(SESSION, make_event("mine"))
+    theirs = store.insert_event(OTHER, make_event("theirs"))
 
     assert list(store.list_events(SESSION)) == [mine]
     assert list(store.list_events(OTHER)) == [theirs]
 
 def test_events_near_only_returns_own_session_events():
-    mine = store.add_event(SESSION, make_event("mine", NOW + timedelta(days=1)))
-    store.add_event(OTHER, make_event("theirs", NOW + timedelta(days=1)))
+    mine = store.insert_event(SESSION, make_event("mine", NOW + timedelta(days=1)))
+    store.insert_event(OTHER, make_event("theirs", NOW + timedelta(days=1)))
 
     assert list(store.events_near(SESSION, NOW)) == [mine]
 
 def test_remove_cannot_delete_other_sessions_event():
-    theirs = store.add_event(OTHER, make_event("theirs"))
+    theirs = store.insert_event(OTHER, make_event("theirs"))
 
     assert store.remove_event(SESSION, theirs) is None
     assert list(store.list_events(OTHER)) == [theirs]
 
 def test_clear_store_only_clears_own_session():
-    store.add_event(SESSION, make_event("mine"))
-    theirs = store.add_event(OTHER, make_event("theirs"))
+    store.insert_event(SESSION, make_event("mine"))
+    theirs = store.insert_event(OTHER, make_event("theirs"))
 
     store.clear_store(SESSION)
 
@@ -241,8 +297,8 @@ def test_clear_store_only_clears_own_session():
     assert list(store.list_events(OTHER)) == [theirs]
 
 def test_clear_all_clears_every_session():
-    store.add_event(SESSION, make_event("mine"))
-    store.add_event(OTHER, make_event("theirs"))
+    store.insert_event(SESSION, make_event("mine"))
+    store.insert_event(OTHER, make_event("theirs"))
 
     store.clear_all()
 
@@ -274,7 +330,7 @@ def test_touch_session_creates_then_updates_row():
 
 def test_delete_stale_sessions_removes_old_session_and_its_events():
     store.touch_session(SESSION)
-    store.add_event(SESSION, make_event("old"))
+    store.insert_event(SESSION, make_event("old"))
     _set_last_seen(SESSION, datetime.now() - timedelta(days=10))
 
     store.delete_stale_sessions(7)
@@ -284,9 +340,9 @@ def test_delete_stale_sessions_removes_old_session_and_its_events():
 
 def test_delete_stale_sessions_keeps_recent_session():
     store.touch_session(OTHER)
-    kept = store.add_event(OTHER, make_event("recent"))
+    kept = store.insert_event(OTHER, make_event("recent"))
     store.touch_session(SESSION)
-    store.add_event(SESSION, make_event("old"))
+    store.insert_event(SESSION, make_event("old"))
     _set_last_seen(SESSION, datetime.now() - timedelta(days=10))
 
     store.delete_stale_sessions(7)
@@ -297,7 +353,7 @@ def test_delete_stale_sessions_keeps_recent_session():
 # update_event
 
 def _seed(**kwargs) -> str:
-    return store.add_event(SESSION, make_event(**kwargs), "e1")
+    return store.insert_event(SESSION, make_event(**kwargs), "e1")
 
 def test_update_changes_only_given_fields():
     _seed(location="Clinic", end_day_time=datetime(2026, 10, 6, 11, 0))
