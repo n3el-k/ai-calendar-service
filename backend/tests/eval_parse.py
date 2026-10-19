@@ -212,9 +212,11 @@ def eval_update():
         summary += f" | average inference time: {sum(times)/len(times):.2f} | max time {max(times):.2f}"
     print(summary)
 
-# Test times without am/pm
+# Test times without am/pm, and today's weekday (remove_now is a Monday)
 time_prompts: dict[str, datetime] = {
     "Dinner at 7 on Friday": datetime(2026, 10, 9, 19, 0),
+    "Dinner at 7 on Monday": datetime(2026, 10, 12, 19, 0),  # today's weekday means next week
+    "Lunch at 1 today": datetime(2026, 10, 5, 13, 0),        # "today" still means today
 }
 
 def eval_times():

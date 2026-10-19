@@ -9,6 +9,7 @@ load_dotenv()
 class Settings(BaseSettings):
     llm_provider: str = "anthropic"
     anthropic_model: str = "claude-haiku-5-5"
+    max_tokens: int = 8000
     ollama_model: str = "qwen2.5:7b"
     ollama_url: str = "http://localhost:11434/v1"
     reset_db_on_start: bool = False

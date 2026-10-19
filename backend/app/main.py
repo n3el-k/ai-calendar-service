@@ -14,8 +14,10 @@ from pydantic import ValidationError
 from app import store
 from app.config import settings
 from app.llm.parse import parse_command
-from app.models import UserInput
+from app.models import UserInput, AgentResponse
 from app.db import init_db
+from app.llm.agent.loop import run_agent
+from app.models import PendingAction, AgentResponse
 
 # Setup app
 app = FastAPI()
@@ -31,6 +33,7 @@ if settings.reset_db_on_start:
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 llm_limit = limiter.shared_limit("10/minute;40/day", scope='llm')
+agent_limit = limiter.limit("7/minute;20/day")
 
 # cookies
 def get_session_id(request: Request, response: Response) -> str:
@@ -56,6 +59,18 @@ async def rate_limit_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=429, content={"detail": "dont finish my api key plz (rate limit exceeded try again later)"})
 
 # API Endpoints
+
+@app.post("/agent")
+@agent_limit
+def process_agent_request(request: Request, text_request: UserInput, sid: str = Depends(get_session_id),
+                          reponse_model = AgentResponse):
+
+    if settings.llm_provider != "anthropic":
+        raise HTTPException(501, "can't run agent calls without anthropic provider")
+    
+    result = run_agent(sid, text_request.request)
+    return result
+
 @app.post("/command")
 @llm_limit
 def process_command(request: Request, text_request: UserInput, sid: str = Depends(get_session_id)):
@@ -83,7 +98,7 @@ def process_command(request: Request, text_request: UserInput, sid: str = Depend
 
 # Pending endpoints
 @app.get("/pending")
-def get_pending(sid: str = Depends(get_session_id)):
+def get_pending(sid: str = Depends(get_session_id), response_model=PendingAction):
 
     event = store.get_pending(sid)
     return {"pending": event}

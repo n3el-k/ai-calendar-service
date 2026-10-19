@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import AfterValidator, BaseModel, Field, ValidationInfo, field_validator, StringConstraints, model_validator
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, Any
 
 class UserInput(BaseModel):
     request: Annotated[str, Field(min_length=5), StringConstraints(strip_whitespace=True)]
@@ -62,5 +62,31 @@ class UpdateEvent(TargetEvent):
 class RemoveEvent(TargetEvent):
     action: Literal["remove"] = "remove"
 
+class SearchFilters(BaseModel):
+    # Input for the agent's search_events tool; every filter is optional
+    query: str | None = None
+    start_time: LocalDatetime | None = None
+    end_time: LocalDatetime | None = None
+
 class CalendarCommand(BaseModel):
     command: Annotated[AddEvent | RemoveEvent | UpdateEvent, Field(discriminator="action")]
+
+# Agent models
+class AgentActions(BaseModel):
+
+    tool: str
+    input: dict[str, Any]
+    is_error: bool
+
+class PendingAction(BaseModel):
+
+    action: Literal["add", "update"] # wont be remove, no need to put remove into pending.
+    event_id: str | None
+    event: Event
+
+class AgentResponse(BaseModel):
+
+    reply: str
+    truncated: bool
+    actions: list[AgentActions]
+    pending: PendingAction | None

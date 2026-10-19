@@ -20,14 +20,15 @@ Existing events:
 
 Date rules:
 - If the user names a weekday, find that weekday in the lookup table below and copy its date exactly. Do not calculate dates yourself.
-- "today" and "tomorrow" are marked in the list.
+- "today" and "tomorrow" are marked in the list below.
 - If the user gives a specific date (for example "October 24"), use that date.
-- Never use a date before today.
+- A weekday name always means the date listed for it below, even when it is today's weekday (the list maps that to next week). Only use today's date if the user says "today" or "tonight".
+- Never schedule or move an event to a time that has already passed.
 - If a time has no am/pm, choose the more likely one for that kind of event (for example "lunch at 1" is 13:00, "breakfast at 8" is 08:00).
 - For remove and update, only pick an event whose title matches what the user is referring to. If no event title matches, event_id must be null. Never pick an unrelated event.
 
 The current date and time is: {now}
-Next 7 days:
+Date lookup:
 {generated_week}
 """
 
