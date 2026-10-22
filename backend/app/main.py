@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Response, Request, Depends
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -29,7 +30,6 @@ if settings.reset_db_on_start:
     store.clear_all()
 
 # rate limiting using slow api
-
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 llm_limit = limiter.shared_limit("10/minute;40/day", scope='llm')
@@ -143,3 +143,5 @@ def delete(event_id: str, sid: str = Depends(get_session_id)):
 def clear_events(sid: str = Depends(get_session_id)):
     store.clear_store(sid)
     return {"cleared": True}
+
+app.mount("/", StaticFiles(directory="../frontend", html=True), name='frontend')
