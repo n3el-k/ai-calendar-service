@@ -1,42 +1,37 @@
-const button = document.getElementById('btn');
+const sendButton = document.getElementById('send-btn');
 const textArea = document.getElementById("text-area");
-const list = document.getElementById("list");
+const agentRadio = document.getElementById("agent-btn")
+const agentOutput = document.getElementById("agent-output")
 
-// "2026-10-22T15:00:00" -> "Oct 22, 2026, 3:00 PM"
 function formatTime(iso) {
-    return new Date(iso).toLocaleString([], {dateStyle: "medium", timeStyle: "short"});
+    return new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-async function renderEvents() {
-    const response = await fetch('/events');
-    const data = await response.json();
-    const dataList = Object.entries(data);
-    list.replaceChildren();
+const calendar = new FullCalendar.Calendar(document.getElementById("calendar"),
+    {
+        initialView: "dayGridMonth",
+        eventClick: async (info) => {
+            const ok = confirm("Delete " + info.event.title + "?")
+            if (ok) {
+                await fetch("/events/" + info.event.id, { method: "DELETE" })
+                calendar.refetchEvents()
+            }
+        },
+        events: fetchEvents
+    })
+calendar.render()
 
-    if (dataList.length == 0) {
-        const item = document.createElement("li");
-        item.textContent = "No upcoming events";
-        list.appendChild(item);
-    }
+async function fetchEvents() {
+    const response = await fetch('/events')
+    const data = await response.json()
 
-    for (const [id, e] of dataList) {
-
-        const item = document.createElement('li');
-        const delButton = document.createElement("button");
-        const span = document.createElement("span");
-
-        span.textContent = e.title + " (" + formatTime(e.start_day_time) + ") ";
-        delButton.textContent = "Delete";
-
-        delButton.addEventListener("click", async () => {
-            await fetch("/events/" + id, {method: "DELETE"});
-            renderEvents();
-        })
-
-        item.appendChild(span);
-        item.appendChild(delButton);
-        list.appendChild(item);
-    }
+    const dataList = Object.entries(data)
+    return dataList.map(([id, e]) => ({
+        id: id,
+        title: e.title,
+        start: e.start_day_time,
+        end: e.end_day_time
+    }))
 }
 
 async function renderPending() {
@@ -61,19 +56,19 @@ async function renderPending() {
     time.textContent = formatTime(pending.event.start_day_time);
 
     confirmButton.addEventListener("click", async () => {
-        const res = await fetch("/pending/confirm", {method: "POST"});
+        const res = await fetch("/pending/confirm", { method: "POST" });
         if (!res.ok) {
             const err = await res.json();
             alert(JSON.stringify(err.detail));
         }
         renderPending();
-        renderEvents();
+        calendar.refetchEvents();
     });
 
     cancelButton.addEventListener("click", async () => {
-        await fetch("/pending", {method: "DELETE"});
+        await fetch("/pending", { method: "DELETE" });
         renderPending();
-        renderEvents();
+        calendar.refetchEvents();
     });
 
     info.appendChild(title);
@@ -84,23 +79,63 @@ async function renderPending() {
 }
 
 async function clickListener() {
-    const text = textArea.value;
-    const response = await fetch('/command', {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            request: text
-        })});
-        
-    const data = await response.json()
-    if (!response.ok) {
-        alert(JSON.stringify(data.detail));
-        return;
+
+    try {
+        sendButton.disabled = true
+        sendButton.textContent = "Thinking..."
+
+        const text = textArea.value;
+        let endpoint = agentRadio.checked ? "/agent" : "/command"
+        agentOutput.replaceChildren()
+
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                request: text
+            })
+        });
+
+        const data = await response.json()
+        console.log(data)
+        if (!response.ok) {
+            alert(JSON.stringify(data.detail));
+            return;
+        }
+        textArea.value = "";
+        calendar.refetchEvents()
+        renderPending();
+
+        if (agentRadio.checked) renderAgentOutput(data)
     }
-    textArea.value = "";
-    renderEvents();
-    renderPending();
+    catch (err) {
+        alert("Something went wrong: " + err.message);
+    }
+    finally {
+        sendButton.disabled = false
+        sendButton.textContent = "Send"
+    }
 }
+
+function renderAgentOutput(data) {
+
+    const reply = document.createElement("p")
+    reply.textContent = "Reply: " + data.reply
+
+    const list = document.createElement("ul")
+    for (const action of data["actions"]) {
+
+        const item = document.createElement("li")
+        if (action.is_error === true) {
+            item.textContent = "ERROR: " + action.tool + ": " + JSON.stringify(action.input)
+        }
+        else item.textContent = action.tool + ": " + JSON.stringify(action.input)
+
+        list.appendChild(item)
+    }
+    agentOutput.appendChild(reply)
+    agentOutput.appendChild(list)
+}
+
 renderPending();
-renderEvents();
-button.addEventListener("click", clickListener);
+sendButton.addEventListener("click", clickListener);
