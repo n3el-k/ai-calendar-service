@@ -42,7 +42,11 @@ async function renderPending() {
 
     pendingDiv.replaceChildren();
     const pending = data.pending;
-    if (pending === null) return;
+    if (pending === null) {
+        pendingDiv.hidden = true;
+        return;
+    }
+    pendingDiv.hidden = false;
 
     const info = document.createElement("span");
     const cancelButton = document.createElement("button");
@@ -87,6 +91,7 @@ async function clickListener() {
         const text = textArea.value;
         let endpoint = agentRadio.checked ? "/agent" : "/command"
         agentOutput.replaceChildren()
+        agentOutput.hidden = true
 
         const response = await fetch(endpoint, {
             method: "POST",
@@ -118,6 +123,7 @@ async function clickListener() {
 }
 
 function renderAgentOutput(data) {
+    agentOutput.hidden = false
 
     const reply = document.createElement("p")
     reply.textContent = "Reply: " + data.reply

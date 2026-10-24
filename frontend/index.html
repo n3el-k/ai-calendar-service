@@ -3,26 +3,46 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css">
   <title>Calendar</title>
 </head>
 
 <body>
-    <div id="calendar"></div>
-    <textarea id="text-area"></textarea>
-    <button id="send-btn">Send</button>
-    <div>
-      <input type="radio" id="command-btn" name="api-select" value="command" checked>
-      <label for="command-btn">Command</label>
+  <header class="topbar">
+    <h1>Calendar</h1>
+  </header>
 
-      <input type="radio" id="agent-btn" name="api-select" value="agent">
-      <label for="agent-btn">Agent</label>
-    </div>
-    <div id="pending"></div>
+  <main class="layout">
+    <section class="calendar-card">
+      <div id="calendar"></div>
+    </section>
 
-  <div id="agent-output"></div>
+    <aside class="side">
+      <div id="pending" class="pending" hidden></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
-    <script src="app.js"></script>
+      <section class="card">
+        <label class="label" for="text-area">Add or change an event</label>
+        <textarea id="text-area" rows="3" placeholder="Dinner with Sam on Friday at 7pm"></textarea>
+
+        <div class="row">
+          <div class="mode">
+            <input type="radio" id="command-btn" name="api-select" value="command" checked>
+            <label for="command-btn">Quick</label>
+            <input type="radio" id="agent-btn" name="api-select" value="agent">
+            <label for="agent-btn">Agent</label>
+          </div>
+          <button id="send-btn" class="primary">Send</button>
+        </div>
+      </section>
+
+      <section id="agent-output" class="card" hidden></section>
+    </aside>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
